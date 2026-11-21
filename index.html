@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none';">
+<title>AI Session Viewer</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect x='36' y='36' width='440' height='440' rx='100' fill='%23161926'/%3E%3Cpolygon points='104,224 256,120 236,280' fill='%23ef8662'/%3E%3Cpolygon points='256,120 408,164 236,280' fill='%236aa8ff'/%3E%3Cpolygon points='236,280 408,164 316,386' fill='%233a74df'/%3E%3Cpolygon points='104,224 236,280 184,386' fill='%23c45938'/%3E%3Cpolygon points='236,280 316,386 184,386' fill='%23e8eef9' opacity='0.9'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #1a1b1e; --panel: #222327; --panel2: #26272c; --border: #35363c;
+    --text: #e8e8ea; --dim: #9a9ba2; --accent: #7ea6f6;
+    --claude: #d97757; --agy: #5b9cf6;
+    --user-bg: #2d3a4a; --tool-bg: #26272c; --think: #7a7b83;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: -apple-system, "Hiragino Sans", sans-serif;
+    background: var(--bg); color: var(--text); height: 100vh;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    padding: 9px 14px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0; flex-wrap: wrap;
+  }
+  header h1 { font-size: 14.5px; font-weight: 600; white-space: nowrap; }
+  header h1 .mark-c { color: var(--claude); }
+  header h1 .mark-a { color: var(--agy); }
+  header .hint { color: var(--dim); font-size: 11.5px; margin-left: auto; white-space: nowrap; }
+
+  /* ソース切替セグメント */
+  .seg {
+    display: inline-flex; background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 6px; overflow: hidden; flex-shrink: 0;
+  }
+  .seg button {
+    background: none; border: none; color: var(--dim); padding: 4px 9px;
+    font-size: 11.5px; cursor: pointer; transition: background .12s, color .12s;
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button.active { background: rgba(255,255,255,.1); color: var(--text); font-weight: 600; }
+  .seg button[data-src="claude"].active { background: rgba(217,119,87,.22); color: #f2a085; }
+  .seg button[data-src="antigravity"].active { background: rgba(91,156,246,.22); color: #8cb8fa; }
+
+  /* ソースバッジ */
+  .badge {
+    display: inline-block; font-size: 10px; font-weight: 600; line-height: 1.3;
+    padding: 1px 5px; border-radius: 4px; margin-right: 5px; vertical-align: 1px;
+    letter-spacing: .02em;
+  }
+  .badge.claude { background: rgba(217,119,87,.18); color: #ea9275; border: 1px solid rgba(217,119,87,.35); }
+  .badge.antigravity { background: rgba(91,156,246,.18); color: #85b3f8; border: 1px solid rgba(91,156,246,.35); }
+  .dot-c { color: var(--claude); }
+  .dot-a { color: var(--agy); }
+
+  main { flex: 1; display: flex; min-height: 0; }
+
+  .col { overflow-y: auto; border-right: 1px solid var(--border); }
+  #projects { width: 250px; flex-shrink: 0; background: var(--panel); }
+  #sessions { width: 330px; flex-shrink: 0; background: var(--panel2); }
+  #conversation { flex: 1; border-right: none; padding: 16px 20px 60px; }
+
+  .col-title {
+    position: sticky; top: 0; background: inherit; padding: 10px 14px 6px;
+    font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em;
+    z-index: 1;
+  }
+  .item { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border); position: relative; }
+  .item .fav {
+    position: absolute; top: 8px; right: 10px; cursor: pointer;
+    color: var(--dim); font-size: 14px; line-height: 1; padding: 2px;
+  }
+  .item .fav:hover, .item .fav.on { color: #f5c542; }
+  .item .copy {
+    position: absolute; top: 8px; right: 32px; cursor: pointer;
+    color: var(--dim); font-size: 12px; line-height: 1.2; padding: 2px;
+  }
+  .item .copy:hover { color: var(--accent); }
+  #projects .fav-row .name { color: #f5c542; }
+  #projects .search-row .name { color: var(--accent); }
+  .search-row .close {
+    position: absolute; top: 8px; right: 10px; cursor: pointer;
+    color: var(--dim); font-size: 14px; line-height: 1; padding: 2px 4px;
+  }
+  .search-row .close:hover { color: #e5645a; }
+
+  /* 会話を一番下までスクロールするボタン */
+  #toBottom {
+    position: fixed; right: 24px; bottom: 24px; z-index: 10;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    font-size: 16px; cursor: pointer; display: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+  }
+  #toBottom.show { display: block; }
+  #toBottom:hover { background: var(--accent); color: #1a1b1e; border-color: var(--accent); }
+  .item:hover { background: rgba(255,255,255,.04); }
+  .item.active { background: rgba(126,166,246,.14); border-left: 3px solid var(--accent); padding-left: 11px; }
+  .item.active.src-claude { background: rgba(217,119,87,.14); border-left-color: var(--claude); }
+  .item.active.src-antigravity { background: rgba(91,156,246,.14); border-left-color: var(--agy); }
+  .item .name { font-size: 13px; word-break: break-all; padding-right: 44px; }
+  .item .meta { font-size: 11px; color: var(--dim); margin-top: 3px; }
+  .item .preview { font-size: 12px; color: var(--dim); margin-top: 3px; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+  .thread { width: 100%; }
+  .msg { margin-bottom: 14px; display: flex; flex-direction: column; align-items: flex-start; }
+  .msg .who { font-size: 11px; color: var(--dim); margin-bottom: 4px; }
+  .msg .who .who-claude { color: #ea9275; font-weight: 600; }
+  .msg .who .who-agy { color: #85b3f8; font-weight: 600; }
+  .msg .who .msgcopy { cursor: pointer; margin-left: 4px; opacity: 0; transition: opacity .15s; }
+  .msg:hover .who .msgcopy { opacity: 1; }
+  .msg .who .msgcopy:hover { color: var(--accent); }
+  .bubble {
+    padding: 10px 14px; border-radius: 10px; font-size: 13.5px; line-height: 1.65;
+    white-space: pre-wrap; word-break: break-word; max-width: 100%;
+  }
+  /* ユーザーの発言はチャット風に右寄せ */
+  .msg.user, .msg.command { align-items: flex-end; margin-left: auto; }
+  .user .bubble { background: var(--user-bg); border-bottom-right-radius: 4px; max-width: 85%; }
+  .assistant .bubble { background: var(--panel); border: 1px solid var(--border); }
+  .msg.sidechain { padding-left: 14px; border-left: 2px solid var(--border); }
+  .thinking .bubble { background: none; border: 1px dashed var(--border); color: var(--think); font-size: 12.5px; }
+  .summary .bubble { background: none; border: 1px solid var(--accent); color: var(--dim); font-size: 12.5px; }
+  .command .bubble { background: none; border: none; color: var(--accent); font-family: ui-monospace, monospace; font-size: 12.5px; padding: 2px 0; }
+
+  details.tool { margin-bottom: 10px; }
+  details.tool.sidechain { margin-left: 14px; }
+  details.tool summary {
+    cursor: pointer; font-size: 12.5px; color: var(--dim);
+    padding: 6px 10px; background: var(--tool-bg); border: 1px solid var(--border);
+    border-radius: 8px; list-style: none; display: flex; gap: 8px; align-items: baseline;
+  }
+  details.tool summary::before { content: "▸"; color: var(--accent); }
+  details.tool[open] summary::before { content: "▾"; }
+  details.tool summary .tname { color: var(--text); font-weight: 600; }
+  details.tool summary .tsum { font-family: ui-monospace, monospace; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  details.tool summary .err { color: #e5645a; }
+  details.system summary { border-style: dashed; }
+  details.system summary .tname { color: var(--think); font-weight: 400; font-style: italic; }
+  details.tool .tool-body {
+    border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px;
+    padding: 10px; font-size: 12px;
+  }
+  details.tool .tool-body h4 { font-size: 11px; color: var(--dim); margin: 8px 0 4px; }
+  details.tool .tool-body h4:first-child { margin-top: 0; }
+  pre {
+    background: #141518; border-radius: 6px; padding: 10px; overflow-x: auto;
+    font-family: ui-monospace, "SF Mono", monospace; font-size: 12px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .bubble pre { margin: 6px 0; }
+  code { font-family: ui-monospace, monospace; background: #141518; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .empty { color: var(--dim); padding: 40px; text-align: center; font-size: 13px; }
+
+  /* Markdownレンダリング済みバブル */
+  .bubble.md { white-space: normal; }
+  .bubble.md > :first-child { margin-top: 0; }
+  .bubble.md > :last-child { margin-bottom: 0; }
+  .bubble.md p, .bubble.md ul, .bubble.md ol, .bubble.md pre, .bubble.md table,
+  .bubble.md blockquote { margin: 8px 0; }
+  .bubble.md h1, .bubble.md h2, .bubble.md h3, .bubble.md h4 {
+    margin: 16px 0 8px; line-height: 1.4; font-weight: 600;
+  }
+  .bubble.md h1 { font-size: 17px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .bubble.md h2 { font-size: 15.5px; }
+  .bubble.md h3 { font-size: 14px; }
+  .bubble.md h4 { font-size: 13.5px; color: var(--dim); }
+  .bubble.md ul, .bubble.md ol { padding-left: 22px; }
+  .bubble.md li { margin: 3px 0; }
+  .bubble.md li > ul, .bubble.md li > ol { margin: 3px 0; }
+  .bubble.md a { color: var(--accent); }
+  .bubble.md blockquote {
+    border-left: 3px solid var(--border); padding: 2px 12px; color: var(--dim);
+  }
+  .bubble.md table { border-collapse: collapse; display: block; overflow-x: auto; max-width: 100%; }
+  .bubble.md th, .bubble.md td { border: 1px solid var(--border); padding: 5px 10px; font-size: 12.5px; }
+  .bubble.md th { background: rgba(255,255,255,.05); font-weight: 600; }
+  .bubble.md hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+  .bubble.md img { max-width: 100%; }
+  label.sc { font-size: 12px; color: var(--dim); display: flex; gap: 4px; align-items: center; cursor: pointer; white-space: nowrap; }
+
+  /* 検索 */
+  header input[type="search"] {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: 5px 10px; font-size: 12.5px; width: 210px; outline: none;
+  }
+  header input[type="search"]:focus { border-color: var(--accent); }
+  #exportMd {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--dim); padding: 5px 10px; font-size: 12px; cursor: pointer; white-space: nowrap;
+  }
+  #exportMd:hover { color: var(--text); border-color: var(--accent); }
+  mark { background: var(--accent); color: #1a1b1e; border-radius: 3px; padding: 0 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="mark-c">◆</span><span class="mark-a">◆</span> AI Session Viewer</h1>
+  <div class="seg" id="sourceFilter" role="group" aria-label="ソース切り替え">
+    <button data-src="all" class="active">すべて</button>
+    <button data-src="claude">Claude</button>
+    <button data-src="antigravity">Antigravity</button>
+  </div>
+  <input type="search" id="q" placeholder="全セッション検索 (Enter)">
+  <button id="exportMd" title="表示中のやり取りをMarkdownでコピー">MD出力</button>
+  <label class="sc"><input type="checkbox" id="showSteps"> 途中の応答</label>
+  <label class="sc"><input type="checkbox" id="showSystem"> システム注入</label>
+  <label class="sc"><input type="checkbox" id="showTools"> ツール操作</label>
+  <label class="sc"><input type="checkbox" id="sidechain"> サブエージェント</label>
+  <div class="hint">Claude + Antigravity (読み取り専用)</div>
+</header>
+<button id="toBottom" title="一番下へ">↓</button>
+<main>
+  <div class="col" id="projects"><div class="col-title">プロジェクト</div></div>
+  <div class="col" id="sessions"><div class="col-title">セッション</div><div class="empty">プロジェクトを選択</div></div>
+  <div class="col" id="conversation"><div class="empty">セッションを選択すると会話が表示されます</div></div>
+</main>
+<script src="marked.min.js"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+let state = {
+  sourceFilter: 'all', // 'all' | 'claude' | 'antigravity'
+  project: null,
+  session: null,
+  sessionSource: null,
+  highlight: null,
+  favSet: new Set(),
+};
+
+const favKey = (source, id) => source + '/' + id;
+
+function sourceBadge(source) {
+  if (source === 'claude') return '<span class="badge claude">Claude</span>';
+  if (source === 'antigravity') return '<span class="badge antigravity">AGY</span>';
+  return '';
+}
+
+function sourceDisplayName(source) {
+  return source === 'claude' ? 'Claude' : 'Antigravity';
+}
+
+async function loadFavorites() {
+  const favs = await api('/api/favorites');
+  if (!Array.isArray(favs)) return [];
+  state.favSet = new Set(favs.map((f) => favKey(f.source, f.id)));
+  const count = $('#favCount');
+  if (count) count.textContent = `${state.favSet.size} セッション`;
+  return favs;
+}
+
+// ツールに応じたセッション再開コマンド (cwd・id ともに厳密にシングルクォート)
+const shellQuote = (s) => "'" + String(s).replace(/[\r\n]/g, '').replace(/'/g, "'\\''") + "'";
+function resumeCommand(source, cwd, id) {
+  const safeId = shellQuote(id);
+  const cmd = source === 'claude' ? `claude --resume ${safeId}` : `agy --conversation ${safeId}`;
+  return cwd ? `cd ${shellQuote(cwd)} && ${cmd}` : cmd;
+}
+
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // WKWebView(file://)等でClipboard APIが使えない場合のフォールバック
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  if (btn) {
+    const orig = btn.textContent;
+    btn.textContent = '✓';
+    setTimeout(() => { btn.textContent = orig; }, 1200);
+  }
+}
+
+function attachCopyButton(div, source, cwd, id) {
+  const btn = div.querySelector('.copy');
+  if (!btn) return;
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    copyText(resumeCommand(source, cwd, id), btn);
+  };
+}
+
+async function toggleFav(source, project, id, btn) {
+  const on = !state.favSet.has(favKey(source, id));
+  const favs = await api(
+    `/api/favorite?source=${encodeURIComponent(source)}&project=${encodeURIComponent(project)}&id=${encodeURIComponent(id)}&on=${on ? 1 : 0}`
+  );
+  if (!Array.isArray(favs)) return;
+  state.favSet = new Set(favs.map((f) => favKey(f.source, f.id)));
+  if (btn) {
+    btn.classList.toggle('on', on);
+    btn.textContent = on ? '★' : '☆';
+  }
+  const count = $('#favCount');
+  if (count) count.textContent = `${state.favSet.size} セッション`;
+}
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// ``` コードブロックと `inline code` だけの最小マークダウン(ユーザー入力用)
+function renderText(raw) {
+  const parts = raw.split(/```(\w*)\n?/);
+  let html = '', inCode = false;
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) { inCode = !inCode; continue; }
+    if (inCode) html += '<pre>' + esc(parts[i].replace(/\n$/, '')) + '</pre>';
+    else html += esc(parts[i]).replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    if (i % 2 === 0 && i + 1 < parts.length) inCode = !inCode;
+  }
+  return html;
+}
+
+// トランスクリプト内の悪意あるHTML・危険なURLスキーム・外部画像ロードをすべて遮断する。
+// Markdown由来の安全な装飾(見出し・テーブル・コードブロック等)のみ有効にする。
+function isSafeHttpUrl(href) {
+  if (typeof href !== 'string') return false;
+  try {
+    const u = new URL(href);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+marked.use({
+  renderer: {
+    html(token) {
+      const t = typeof token === 'string' ? token : (token.text ?? '');
+      return esc(t);
+    },
+    link(href, title, text) {
+      // marked v12 は (href, title, text) または token オブジェクト
+      const rawHref = typeof href === 'object' && href !== null ? href.href : href;
+      const rawTitle = typeof href === 'object' && href !== null ? href.title : title;
+      const rawText = typeof href === 'object' && href !== null
+        ? (this.parser ? this.parser.parseInline(href.tokens) : esc(href.text || ''))
+        : text;
+      if (!isSafeHttpUrl(rawHref)) {
+        return rawText || esc(rawHref || '');
+      }
+      const titleAttr = rawTitle ? ` title="${esc(rawTitle)}"` : '';
+      return `<a href="${esc(rawHref)}"${titleAttr} rel="noopener noreferrer" target="_blank">${rawText}</a>`;
+    },
+    image(href, title, text) {
+      const rawText = typeof href === 'object' && href !== null ? (href.text || '') : (text || '');
+      return esc(rawText ? `[画像: ${rawText}]` : '[画像]');
+    },
+  },
+});
+
+function renderMarkdown(raw) {
+  try {
+    return marked.parse(raw, { breaks: true, gfm: true });
+  } catch {
+    return renderText(raw);
+  }
+}
+
+function fmtDate(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  return d.toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+function fmtSize(b) {
+  return b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.round(b / 1e3) + ' KB';
+}
+function projLabel(cwd, dirName) {
+  if (cwd) return cwd.replace(/^\/(Users|home)\/[^/]+/, '~');
+  if (dirName === '_unassigned') return '(ワークスペースなし)';
+  if (dirName.startsWith('c_')) return dirName.slice(2).replace(/^-/, '/').replace(/-/g, '/');
+  return dirName;
+}
+
+function projCountMeta(p) {
+  const parts = [];
+  if (p.claudeCount > 0) parts.push(`<span class="dot-c">C:${p.claudeCount}</span>`);
+  if (p.antigravityCount > 0) parts.push(`<span class="dot-a">A:${p.antigravityCount}</span>`);
+  const breakdown = parts.length ? ` (${parts.join(' / ')})` : '';
+  return `${p.count} セッション${breakdown} · ${fmtDate(p.lastModified)}`;
+}
+
+function assistantLabel(m, sessionSource) {
+  const base = sourceDisplayName(m.source || sessionSource);
+  if (!m.sidechain) return base;
+  return m.agentName ? `${base} (subagent: ${m.agentName})` : `${base} (subagent)`;
+}
+
+// Macアプリ(WKWebView)のネイティブブリッジ経由でAPIを呼ぶ
+const bridgePending = {};
+let bridgeSeq = 0;
+window.__apiResolve = (id, obj) => {
+  const resolve = bridgePending[id];
+  delete bridgePending[id];
+  if (resolve) resolve(obj);
+};
+async function api(path) {
+  if (!window.webkit?.messageHandlers?.api) {
+    return { error: 'ネイティブアプリ環境でのみ動作します' };
+  }
+  return new Promise((resolve) => {
+    const id = ++bridgeSeq;
+    bridgePending[id] = resolve;
+    window.webkit.messageHandlers.api.postMessage({ id, path });
+  });
+}
+
+const searchEntries = new Map(); // q → {q, row, sessions}
+
+async function loadProjects() {
+  const srcParam = state.sourceFilter !== 'all' ? `?source=${encodeURIComponent(state.sourceFilter)}` : '';
+  const [projects] = await Promise.all([api('/api/projects' + srcParam), loadFavorites()]);
+  const el = $('#projects');
+  el.innerHTML = '<div class="col-title">プロジェクト</div>';
+  if (!Array.isArray(projects)) {
+    el.innerHTML += `<div class="empty">${esc(projects?.error || '読み込みエラー')}</div>`;
+    return;
+  }
+  const favRow = document.createElement('div');
+  favRow.className = 'item fav-row';
+  favRow.innerHTML = `<div class="name">★ お気に入り</div>
+    <div class="meta" id="favCount">${state.favSet.size} セッション</div>`;
+  favRow.onclick = () => showFavorites(favRow);
+  el.appendChild(favRow);
+
+  // 既存の検索結果エントリを再配置
+  for (const entry of searchEntries.values()) {
+    favRow.after(entry.row);
+  }
+
+  if (!projects.length) {
+    el.innerHTML += '<div class="empty">セッションが見つかりません</div>';
+    return;
+  }
+  for (const p of projects) {
+    const div = document.createElement('div');
+    div.className = 'item';
+    div.dataset.name = p.name;
+    if (state.project === p.name) div.classList.add('active');
+    div.innerHTML = `<div class="name">${esc(projLabel(p.cwd, p.name))}</div>
+      <div class="meta">${projCountMeta(p)}</div>`;
+    div.onclick = () => selectProject(p.name, div);
+    el.appendChild(div);
+  }
+}
+
+async function selectProject(name, div) {
+  state.project = name;
+  document.querySelectorAll('#projects .item').forEach((d) => d.classList.toggle('active', d === div));
+  const el = $('#sessions');
+  el.innerHTML = '<div class="col-title">セッション</div><div class="empty">読み込み中…</div>';
+  const srcParam = state.sourceFilter !== 'all' ? `&source=${encodeURIComponent(state.sourceFilter)}` : '';
+  const sessions = await api('/api/sessions?project=' + encodeURIComponent(name) + srcParam);
+  el.innerHTML = '<div class="col-title">セッション</div>';
+  if (!sessions.length) el.innerHTML += '<div class="empty">セッションなし</div>';
+  for (const s of sessions) {
+    const div = document.createElement('div');
+    div.className = 'item src-' + s.source;
+    div.dataset.id = s.id;
+    div.dataset.source = s.source;
+    const on = state.favSet.has(favKey(s.source, s.id));
+    div.innerHTML = `<span class="fav${on ? ' on' : ''}" title="お気に入り">${on ? '★' : '☆'}</span>
+      <span class="copy" title="再開コマンドをコピー">⧉</span>
+      <div class="name">${sourceBadge(s.source)}${esc(s.title || s.firstPrompt || s.id.slice(0, 8) + '…')}</div>
+      <div class="meta">${fmtDate(s.mtime)} · ${fmtSize(s.size)}</div>
+      ${s.firstPrompt && s.title ? `<div class="preview">${esc(s.firstPrompt)}</div>` : ''}`;
+    div.querySelector('.fav').onclick = (e) => {
+      e.stopPropagation();
+      toggleFav(s.source, name, s.id, e.target);
+    };
+    attachCopyButton(div, s.source, s.cwd, s.id);
+    div.onclick = () => selectSession(s.source, name, s.id, div);
+    el.appendChild(div);
+  }
+}
+
+async function showFavorites(rowDiv) {
+  state.project = null;
+  document.querySelectorAll('#projects .item').forEach((d) => d.classList.toggle('active', d === rowDiv));
+  const el = $('#sessions');
+  el.innerHTML = '<div class="col-title">お気に入り</div>';
+  const allFavs = await loadFavorites();
+  const favs = state.sourceFilter === 'all'
+    ? allFavs
+    : allFavs.filter((f) => f.source === state.sourceFilter);
+  if (!favs.length) {
+    el.innerHTML += '<div class="empty">セッション一覧の☆を押すと<br>ここに登録されます</div>';
+    return;
+  }
+  for (const f of favs) {
+    const div = document.createElement('div');
+    div.className = 'item src-' + f.source;
+    div.dataset.id = f.id;
+    div.dataset.source = f.source;
+    div.innerHTML = `<span class="fav on" title="お気に入り解除">★</span>
+      ${f.missing ? '' : '<span class="copy" title="再開コマンドをコピー">⧉</span>'}
+      <div class="name">${sourceBadge(f.source)}${esc(f.title || f.id.slice(0, 8) + '…')}${f.missing ? ' (削除済み)' : ''}</div>
+      <div class="meta">${esc(projLabel(f.cwd, f.project))}${f.mtime ? ' · ' + fmtDate(f.mtime) : ''}</div>`;
+    div.querySelector('.fav').onclick = async (e) => {
+      e.stopPropagation();
+      await toggleFav(f.source, f.project, f.id);
+      showFavorites(rowDiv);
+    };
+    attachCopyButton(div, f.source, f.cwd, f.id);
+    if (!f.missing) div.onclick = () => openSession(f.source, f.project, f.id, null);
+    el.appendChild(div);
+  }
+}
+
+async function selectSession(source, project, id, div, highlight = null) {
+  state.sessionSource = source;
+  state.project = project;
+  state.session = id;
+  state.highlight = highlight;
+  const titleEl = div?.querySelector('.name');
+  state.sessionTitle = titleEl ? titleEl.textContent.replace(/^(Claude|AGY)/, '').trim() : id;
+  document.querySelectorAll('#sessions .item').forEach((d) => d.classList.toggle('active', d === div));
+  renderConversation();
+}
+
+// ヘッダーのチェック状態を適用したメッセージ一覧(画面表示とMarkdown出力で共用)
+function visibleMessages(messages) {
+  const showTools = $('#showTools').checked;
+  const showSteps = $('#showSteps').checked;
+  const showSystem = $('#showSystem').checked;
+
+  // ターンごとに最後のメインassistantメッセージを特定
+  const finalAssistant = new Set();
+  let lastInTurn = -1;
+  const closeTurn = () => { if (lastInTurn >= 0) finalAssistant.add(lastInTurn); lastInTurn = -1; };
+  messages.forEach((m, i) => {
+    if (!m.sidechain && (m.kind === 'user' || m.kind === 'command')) closeTurn();
+    if (!m.sidechain && m.kind === 'assistant') lastInTurn = i;
+  });
+  closeTurn();
+
+  // サブエージェント内の最終応答もそれぞれ特定
+  const finalSubAssistant = new Set();
+  let lastSub = -1;
+  let curSubId = null;
+  const closeSub = () => { if (lastSub >= 0) finalSubAssistant.add(lastSub); lastSub = -1; curSubId = null; };
+  messages.forEach((m, i) => {
+    if (!m.sidechain) { closeSub(); return; }
+    if ((m.subId || null) !== curSubId) { closeSub(); curSubId = m.subId || null; }
+    if (m.kind === 'assistant') lastSub = i;
+  });
+  closeSub();
+
+  return messages.filter((m, i) => {
+    if (!showSteps && m.kind === 'thinking') return false;
+    if (!showSteps && m.kind === 'assistant') {
+      if (m.sidechain) {
+        if (!finalSubAssistant.has(i)) return false;
+      } else if (!finalAssistant.has(i)) {
+        return false;
+      }
+    }
+    if (!showSystem && m.kind === 'system') return false;
+    if (!showTools && m.kind === 'tool') return false;
+    return true;
+  });
+}
+
+function exportMarkdown() {
+  if (!state.messages || state.messages.error) return;
+  const lines = [`# ${state.sessionTitle || state.session}`, ''];
+  for (const m of visibleMessages(state.messages)) {
+    const ts = m.ts ? ` (${fmtDate(Date.parse(m.ts))})` : '';
+    switch (m.kind) {
+      case 'user':
+        lines.push(`## 👤 ユーザー${ts}`, '', m.text, '');
+        break;
+      case 'assistant':
+        lines.push(`## 🤖 ${assistantLabel(m, state.sessionSource)}${ts}`, '', m.text, '');
+        break;
+      case 'command':
+        lines.push(`> コマンド実行: \`${m.text}\``, '');
+        break;
+      case 'summary':
+        lines.push(`> 📝 要約: ${m.text}`, '');
+        break;
+      case 'thinking':
+        lines.push(`<details><summary>💭 thinking${m.sidechain && m.agentName ? ` (${m.agentName})` : ''}</summary>`, '', '````', m.text, '````', '', '</details>', '');
+        break;
+      case 'system':
+        lines.push(`<details><summary>⚙️ system: ${m.label}</summary>`, '', '````', m.text, '````', '', '</details>', '');
+        break;
+      case 'tool':
+        lines.push(`<details><summary>🔧 ${m.name}${m.inputSummary ? `: ${m.inputSummary}` : ''}${m.isError ? ' ⚠️error' : ''}</summary>`, '');
+        if (m.input) lines.push('入力:', '', '````json', m.input, '````', '');
+        if (m.result) lines.push('結果:', '', '````', m.result, '````', '');
+        lines.push('</details>', '');
+        break;
+    }
+  }
+  copyText(lines.join('\n'), $('#exportMd'));
+}
+
+async function renderConversation() {
+  if (!state.sessionSource || !state.session) return;
+  const el = $('#conversation');
+  el.innerHTML = '<div class="empty">読み込み中…</div>';
+  const sc = $('#sidechain').checked ? '&sidechain=1' : '';
+  const projQ = state.project ? `&project=${encodeURIComponent(state.project)}` : '';
+  const messages = await api(
+    `/api/session?source=${encodeURIComponent(state.sessionSource)}&id=${encodeURIComponent(state.session)}${projQ}${sc}`
+  );
+  el.innerHTML = '';
+  if (messages.error) { el.innerHTML = `<div class="empty">${esc(messages.error)}</div>`; return; }
+  const th = document.createElement('div');
+  th.className = 'thread';
+  el.appendChild(th);
+  state.messages = messages;
+
+  for (const m of visibleMessages(messages)) {
+    if (m.kind === 'system') {
+      const d = document.createElement('details');
+      d.className = 'tool system' + (m.sidechain ? ' sidechain' : '');
+      const prefix = m.sidechain && m.agentName ? `system (${m.agentName})` : 'system';
+      d.innerHTML = `<summary><span class="tname">${esc(prefix)}</span>
+          <span class="tsum">${esc(m.label)}: ${esc((m.text || '').split('\n')[0].slice(0, 100))}</span></summary>
+        <div class="tool-body"><pre>${esc(m.text || '')}</pre></div>`;
+      th.appendChild(d);
+      continue;
+    }
+    if (m.kind === 'tool') {
+      const d = document.createElement('details');
+      d.className = 'tool' + (m.sidechain ? ' sidechain' : '');
+      const tlabel = m.sidechain && m.agentName ? `[${m.agentName}] ${m.name}` : m.name;
+      d.innerHTML = `<summary><span class="tname">${esc(tlabel)}</span>
+          <span class="tsum">${esc(m.inputSummary || '')}</span>
+          ${m.isError ? '<span class="err">error</span>' : ''}</summary>
+        <div class="tool-body">
+          ${m.input ? `<h4>入力</h4><pre>${esc(m.input)}</pre>` : ''}
+          ${m.result ? `<h4>結果</h4><pre>${esc(m.result)}</pre>` : ''}
+        </div>`;
+      th.appendChild(d);
+      continue;
+    }
+    const div = document.createElement('div');
+    div.className = 'msg ' + m.kind + (m.sidechain ? ' sidechain' : '');
+    const isAssistant = m.kind === 'assistant';
+    const whoText = {
+      user: 'ユーザー',
+      assistant: assistantLabel(m, state.sessionSource),
+      thinking: m.sidechain && m.agentName ? `thinking (${m.agentName})` : 'thinking',
+      summary: '要約',
+      command: '',
+    }[m.kind] ?? m.kind;
+    const whoClass = isAssistant
+      ? (state.sessionSource === 'claude' ? 'who-claude' : 'who-agy')
+      : '';
+    const whoHtml = whoText
+      ? (whoClass ? `<span class="${whoClass}">${esc(whoText)}</span>` : esc(whoText))
+      : '';
+    const body = m.kind === 'command' ? esc(m.text) : isAssistant ? renderMarkdown(m.text) : renderText(m.text);
+    div.innerHTML = `${whoHtml ? `<div class="who">${whoHtml}${m.ts ? ' · ' + fmtDate(Date.parse(m.ts)) : ''}${isAssistant ? ' <span class="msgcopy" title="この応答をコピー">⧉</span>' : ''}</div>` : ''}
+      <div class="bubble${isAssistant ? ' md' : ''}">${body}</div>`;
+    const cp = div.querySelector('.msgcopy');
+    if (cp) cp.onclick = () => copyText(m.text, cp);
+    th.appendChild(div);
+  }
+  el.scrollTop = 0;
+  requestAnimationFrame(updateToBottomButton);
+
+  if (state.highlight) {
+    highlightIn(th, state.highlight);
+    const first = th.querySelector('mark');
+    if (first) {
+      first.scrollIntoView({ block: 'center' });
+    } else if (!$('#showSteps').checked) {
+      $('#showSteps').checked = true;
+      return renderConversation();
+    }
+  }
+}
+
+function highlightIn(root, q) {
+  const needle = q.toLowerCase();
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) {
+    if (walker.currentNode.nodeValue.toLowerCase().includes(needle)) nodes.push(walker.currentNode);
+  }
+  for (const n of nodes) {
+    const frag = document.createDocumentFragment();
+    let text = n.nodeValue, i;
+    while ((i = text.toLowerCase().indexOf(needle)) >= 0) {
+      frag.appendChild(document.createTextNode(text.slice(0, i)));
+      const mark = document.createElement('mark');
+      mark.textContent = text.slice(i, i + q.length);
+      frag.appendChild(mark);
+      text = text.slice(i + q.length);
+    }
+    frag.appendChild(document.createTextNode(text));
+    n.parentNode.replaceChild(frag, n);
+  }
+}
+
+function markSnippet(text, q) {
+  const lower = text.toLowerCase(), nl = q.toLowerCase();
+  const parts = [];
+  let i = 0, j;
+  while ((j = lower.indexOf(nl, i)) >= 0) {
+    parts.push(esc(text.slice(i, j)), '<mark>' + esc(text.slice(j, j + q.length)) + '</mark>');
+    i = j + q.length;
+  }
+  parts.push(esc(text.slice(i)));
+  return parts.join('');
+}
+
+async function runSearch() {
+  const q = $('#q').value.trim();
+  if (q.length < 2) return;
+  const data = await api('/api/search?q=' + encodeURIComponent(q));
+  if (data.error) return;
+  let entry = searchEntries.get(q);
+  if (!entry) {
+    const row = document.createElement('div');
+    row.className = 'item search-row';
+    entry = { q, row, sessions: data.sessions };
+    searchEntries.set(q, entry);
+    document.querySelector('#projects .fav-row').after(row);
+    row.onclick = () => showSearchResults(entry);
+  } else {
+    entry.sessions = data.sessions;
+  }
+  const total = data.sessions.reduce((a, s) => a + s.count, 0);
+  entry.row.innerHTML = `<span class="close" title="この検索結果を削除">×</span>
+    <div class="name">🔍 ${esc(q)}</div>
+    <div class="meta">${data.sessions.length} セッション / ${total}件ヒット</div>`;
+  entry.row.querySelector('.close').onclick = (e) => {
+    e.stopPropagation();
+    const wasActive = entry.row.classList.contains('active');
+    searchEntries.delete(entry.q);
+    entry.row.remove();
+    if (wasActive) {
+      $('#sessions').innerHTML = '<div class="col-title">セッション</div><div class="empty">プロジェクトを選択</div>';
+    }
+  };
+  showSearchResults(entry);
+  $('#q').blur();
+}
+
+function showSearchResults(entry) {
+  state.project = null;
+  document.querySelectorAll('#projects .item').forEach((d) => d.classList.toggle('active', d === entry.row));
+  const el = $('#sessions');
+  el.innerHTML = `<div class="col-title">検索: ${esc(entry.q)}</div>`;
+  const list = state.sourceFilter === 'all'
+    ? entry.sessions
+    : entry.sessions.filter((s) => s.source === state.sourceFilter);
+  if (!list.length) {
+    el.innerHTML += '<div class="empty">ヒットなし</div>';
+    return;
+  }
+  for (const s of list) {
+    const div = document.createElement('div');
+    div.className = 'item src-' + s.source;
+    div.dataset.id = s.id;
+    div.dataset.source = s.source;
+    const on = state.favSet.has(favKey(s.source, s.id));
+    div.innerHTML = `<span class="fav${on ? ' on' : ''}" title="お気に入り">${on ? '★' : '☆'}</span>
+      <span class="copy" title="再開コマンドをコピー">⧉</span>
+      <div class="name">${sourceBadge(s.source)}${esc(s.title || s.id.slice(0, 8) + '…')}</div>
+      <div class="meta">${esc(projLabel(s.cwd, s.project))} · ${fmtDate(s.mtime)} · ${s.count}件ヒット</div>
+      <div class="preview">${markSnippet(s.matches[0]?.snippet || '', entry.q)}</div>`;
+    div.querySelector('.fav').onclick = (e) => {
+      e.stopPropagation();
+      toggleFav(s.source, s.project, s.id, e.target);
+    };
+    attachCopyButton(div, s.source, s.cwd, s.id);
+    div.onclick = () => {
+      selectSession(s.source, s.project, s.id, div, entry.q);
+    };
+    el.appendChild(div);
+  }
+}
+
+async function openSession(source, project, id, q) {
+  if (state.project !== project) {
+    const pdiv = document.querySelector(`#projects .item[data-name="${CSS.escape(project)}"]`);
+    if (pdiv) await selectProject(project, pdiv);
+  }
+  const sdiv = [...document.querySelectorAll('#sessions .item')]
+    .find((d) => d.dataset.id === id && d.dataset.source === source);
+  await selectSession(source, project, id, sdiv, q);
+}
+
+// ソースフィルタ切り替え
+document.querySelectorAll('#sourceFilter button').forEach((btn) => {
+  btn.onclick = async () => {
+    const next = btn.dataset.src;
+    if (next === state.sourceFilter) return;
+    state.sourceFilter = next;
+    document.querySelectorAll('#sourceFilter button').forEach((b) => b.classList.toggle('active', b === btn));
+    const activeSearch = [...searchEntries.values()].find((e) => e.row.classList.contains('active'));
+    const favActive = document.querySelector('#projects .fav-row')?.classList.contains('active');
+    const prevProject = state.project;
+    await loadProjects();
+    if (activeSearch) {
+      showSearchResults(activeSearch);
+    } else if (favActive) {
+      showFavorites(document.querySelector('#projects .fav-row'));
+    } else if (prevProject) {
+      const pdiv = document.querySelector(`#projects .item[data-name="${CSS.escape(prevProject)}"]`);
+      if (pdiv) {
+        await selectProject(prevProject, pdiv);
+      } else {
+        state.project = null;
+        $('#sessions').innerHTML = '<div class="col-title">セッション</div><div class="empty">プロジェクトを選択</div>';
+      }
+    }
+  };
+});
+
+$('#sidechain').onchange = renderConversation;
+$('#showTools').onchange = renderConversation;
+$('#showSteps').onchange = renderConversation;
+$('#showSystem').onchange = renderConversation;
+$('#exportMd').onclick = exportMarkdown;
+
+const conv = $('#conversation');
+function updateToBottomButton() {
+  const scrollable = conv.scrollHeight > conv.clientHeight + 100;
+  const nearBottom = conv.scrollTop + conv.clientHeight >= conv.scrollHeight - 60;
+  $('#toBottom').classList.toggle('show', scrollable && !nearBottom);
+}
+conv.addEventListener('scroll', updateToBottomButton);
+$('#toBottom').onclick = () => { conv.scrollTop = conv.scrollHeight; };
+
+$('#q').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') runSearch();
+  if (e.key === 'Escape') e.target.blur();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey && !e.shiftKey && !e.altKey && e.key === 'f') {
+    e.preventDefault();
+    $('#q').focus();
+    $('#q').select();
+  }
+});
+loadProjects();
+</script>
+</body>
+</html>
